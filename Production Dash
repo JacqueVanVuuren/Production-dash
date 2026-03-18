@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Production Dashboard</title>
+  <style>
+    body { font-family: Arial; background: #0f172a; color: #e2e8f0; padding: 20px; }
+    h2 { color: #38bdf8; }
+    table { border-collapse: collapse; width: 100%; margin-bottom: 20px; background: #1e293b; border-radius: 8px; overflow: hidden; }
+    th { background: #020617; color: #38bdf8; padding: 10px; text-align: left; }
+    td { padding: 8px; border-bottom: 1px solid #334155; }
+    tr:hover { background: #334155; }
+    .group-row { background: #475569; font-weight: bold; cursor: pointer; }
+    input[type="checkbox"] { transform: scale(1.2); cursor: pointer; }
+    .ok { color: #22c55e; font-weight: bold; }
+    .bad { color: #ef4444; font-weight: bold; }
+    .form { background: #1e293b; padding: 15px; border-radius: 10px; margin-top: 20px; max-width: 500px; }
+    .form input, .form select { width: 100%; padding: 6px; margin-bottom: 8px; border-radius: 6px; border: none; }
+    button { background: #38bdf8; border: none; padding: 10px; color: black; font-weight: bold; border-radius: 6px; cursor: pointer; }
+    button:hover { background: #0ea5e9; }
+    .arrow { transition: transform 0.2s ease; display: inline-block; }
+    .arrow.down { transform: rotate(90deg); }
+    .finished-row { background-color: #86efac !important; color: black; font-weight: bold; }
+  </style>
+</head>
+<body>
+
+<h2>Production Dashboard</h2>
+
+<div id="table"></div>
+
+<!-- Form to add a new project -->
+<div class="form">
+  <h3>Add Project</h3>
+  <input id="priority" placeholder="Priority">
+  <input id="qty" placeholder="Qty">
+  <input id="client" placeholder="Client">
+  <select id="product">
+    <option value="">Select Product</option>
+  </select>
+  <input id="application" placeholder="Application">
+  <br><br>
+  <button onclick="addProject()">Add Project</button>
+</div>
+
+<script>
+const API_URL = "https://script.google.com/macros/s/AKfycbxs81p4sW8ZFXUQ84lqDGhTamQXlM2eeoepH8jHwpWWLspcH5Oog5b_k5fNJs8omsFBVQ/exec";
+
+let productPartsMap = {};
+
+// -----------------------------
+// Load initial data
+// -----------------------------
+function load() {
+  fetch(API_URL + "?action=data&t=" + new Date().getTime())
+    .then(res=>res.json())
+    .then(render)
+    .catch(err=>alert("Failed to load data: "+err));
+
+  fetch(API_URL + "?action=products&t=" + new Date().getTime())
+    .then(res=>res.json())
+    .then(map=>{
+      productPartsMap = map;
+      const select = document.getElementById("product");
+      select.innerHTML = '<option value="">Select Product</option>';
+      for(let product in map){
+        const opt = document.createElement("option");
+        opt.value = product;
+        opt.textContent = product;
+        select.appendChild(opt);
+      }
+    });
+
+  setInterval(updateTickBoxes,10000);
+}
+
+// -----------------------------
+// Update live checkbox statuses
+// -----------------------------
+function updateTickBoxes(){
+  fetch(API_URL + "?action=status&t=" + new Date().getTime())
+    .then(res=>res.json())
+    .then(statusArray=>{
+      statusArray.forEach(p=>{
+        const row = document.querySelector(`tr input[data-row="${p.row}"]`)?.closest('tr');
+        if(!row) return;
+        const checkboxes = row.querySelectorAll('input[type="checkbox"]');
+        const props = ['stock','ordered','dman','mfg','test','finished'];
+        checkboxes.forEach((cb,i)=>{
+          const prop = props[i];
+          cb.checked = p[prop];
+          cb.parentElement.className = p[prop] ? 'ok' : 'bad';
+        });
+      });
+    });
+}
+
+// -----------------------------
+// Render the dashboard table
+// -----------------------------
+function render(data){
+  const unfinished = data.filter(g=>!g.parts.every(p=>p.finished));
+  const finished = data.filter(g=>g.parts.every(p=>p.finished));
+  unfinished.forEach((g,i)=> g.displayPriority=g.priority?Number(g.priority):Infinity);
+  unfinished.sort((a,b)=>a.displayPriority-b.displayPriority);
+  let prio=1; unfinished.forEach(g=>g.displayPriority=prio++);
+  finished.forEach(g=>g.displayPriority="");
+  const sorted = unfinished.concat(finished);
+
+  let html = `<table>
+    <tr>
+      <th></th>
+      <th>Priority</th><th>Qty</th><th>Client</th><th>Product</th><th>Application</th>
+      <th>Parts</th><th>Stock</th><th>Ordered</th><th>D-Man</th>
+      <th>MFG</th><th>Test</th><th>Finished</th>
+    </tr>`;
+
+  sorted.forEach((group,gIndex)=>{
+    const partsClass = `parts-${gIndex}`;
+    const allFinished = group.parts.every(p=>p.finished);
+    const rowClass = allFinished ? "group-row finished-row":"group-row";
+    html+=`<tr class="${rowClass}" onclick="toggleParts('${partsClass}', this)">
+      <td><span class="arrow">➤</span></td>
+      <td>${group.displayPriority}</td>
+      <td>${group.qty}</td>
+      <td>${group.client}</td>
+      <td>${group.product}</td>
+      <td>${group.application}</td>
+      <td></td><td></td><td></td><td></td><td></td><td></td><td></td>
+    </tr>`;
+    group.parts.forEach(p=>{
+      html+=`<tr class="${partsClass}" style="display:none;">
+        <td></td><td></td><td></td><td></td><td></td><td></td>
+        <td>${p.name}</td>
+        <td class="${p.stock?'ok':'bad'}"><input data-row="${p.row}" type="checkbox" ${p.stock?"checked":""}></td>
+        <td class="${p.ordered?'ok':'bad'}"><input data-row="${p.row}" type="checkbox" ${p.ordered?"checked":""}></td>
+        <td class="${p.dman?'ok':'bad'}"><input data-row="${p.row}" type="checkbox" ${p.dman?"checked":""}></td>
+        <td><input data-row="${p.row}" type="checkbox" ${p.mfg?"checked":""}></td>
+        <td><input data-row="${p.row}" type="checkbox" ${p.test?"checked":""}></td>
+        <td><input data-row="${p.row}" type="checkbox" ${p.finished?"checked":""}></td>
+      </tr>`;
+    });
+  });
+  html+="</table>";
+  document.getElementById("table").innerHTML = html;
+}
+
+// -----------------------------
+// Expand/collapse parts rows
+// -----------------------------
+function toggleParts(className,rowElement){
+  const rows=document.getElementsByClassName(className);
+  const arrow=rowElement.querySelector(".arrow");
+  let hidden=false;
+  for(let r of rows) if(r.style.display==='none') hidden=true;
+  for(let r of rows) r.style.display=hidden?"":"none";
+  arrow.classList.toggle("down", hidden);
+}
+
+// -----------------------------
+// Add a new project (sends POST to Web App)
+// -----------------------------
+function addProject(){
+  const priority = document.getElementById("priority").value;
+  const qty = document.getElementById("qty").value;
+  const client = document.getElementById("client").value;
+  const product = document.getElementById("product").value;
+  const application = document.getElementById("application").value;
+
+  if(!product){ alert("Select a product"); return; }
+
+  const data = {
+    priority, qty, client, product, application,
+    partsList: productPartsMap[product] || []
+  };
+
+  fetch(API_URL,{
+    method:"POST",
+    body: JSON.stringify({action:"add", data}),
+    headers: {"Content-Type":"application/json"}
+  })
+  .then(res=>res.json())
+  .then(resp=>{
+    if(resp.status==="success"){
+      alert("Project Added!");
+      document.getElementById("priority").value="";
+      document.getElementById("qty").value="";
+      document.getElementById("client").value="";
+      document.getElementById("product").value="";
+      document.getElementById("application").value="";
+      load();
+    } else {
+      alert("Failed to add project: "+resp.message);
+    }
+  })
+  .catch(err=>alert("Error adding project: "+err));
+}
+
+// -----------------------------
+// Initial load
+// -----------------------------
+load();
+</script>
+
+</body>
+</html>
